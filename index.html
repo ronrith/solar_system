@@ -46,9 +46,11 @@
         controls.dampingFactor = 0.05;
         controls.minDistance = 5;
         controls.maxDistance = 200;
-        let isUserInteracting = false;
-        controls.addEventListener('start', () => isUserInteracting = true);
-        controls.addEventListener('end', () => isUserInteracting = false);
+        controls.enableZoom = true;
+        let isUserOverride = false;
+        controls.addEventListener('start', () => {
+            isUserOverride = true;
+        });
 
         // Sun with Bloom effect
         const sunGeometry = new THREE.SphereGeometry(5, 32, 32);
@@ -113,6 +115,25 @@
                 elapsed: 0
             });
         });
+
+        // Title: "The Solar System - by Ron Rith"
+        const titleCanvas = document.createElement('canvas');
+        titleCanvas.width = 1024;
+        titleCanvas.height = 256;
+        const titleContext = titleCanvas.getContext('2d');
+        titleContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        titleContext.fillRect(0, 0, 1024, 256);
+        titleContext.fillStyle = 'white';
+        titleContext.font = '60px Arial';
+        titleContext.textAlign = 'center';
+        titleContext.fillText('The Solar System - by Ron Rith', 512, 160);
+
+        const titleTexture = new THREE.CanvasTexture(titleCanvas);
+        const titleMaterial = new THREE.SpriteMaterial({ map: titleTexture });
+        const titleSprite = new THREE.Sprite(titleMaterial);
+        titleSprite.scale.set(20, 5, 1);
+        titleSprite.position.set(0, 30, 0);
+        scene.add(titleSprite);
 
         // Lighting
         const pointLight = new THREE.PointLight(0xffffff, 2, 100);
@@ -240,16 +261,14 @@
             requestAnimationFrame(animate);
             time += 0.01;
 
-            // Camera motion (slow orbit around the Sun)
-            if (!isUserInteracting) {
-                cameraAngle += 0.001; // Slow constant motion
+            if (!isUserOverride) {
+                cameraAngle += 0.001;
                 camera.position.x = Math.cos(cameraAngle) * 50;
                 camera.position.z = Math.sin(cameraAngle) * 50;
-                camera.position.y = Math.sin(cameraAngle * 0.5) * 20; // Slight vertical motion
+                camera.position.y = Math.sin(cameraAngle * 0.5) * 20;
                 camera.lookAt(0, 0, 0);
             }
 
-            // Planet motion and caption update
             planets.forEach(planet => {
                 planet.angle += planet.speed;
                 planet.mesh.position.x = Math.cos(planet.angle) * planet.distance;
@@ -271,14 +290,12 @@
                 planet.sprite.material.map.needsUpdate = true;
             });
 
-            // Star field fade
             const alphas = stars.geometry.attributes.alpha.array;
             for (let i = 0; i < alphas.length; i++) {
-                alphas[i] = Math.sin(time + i) * 0.5 + 0.5; // Fade between 0 and 1
+                alphas[i] = Math.sin(time + i) * 0.5 + 0.5;
             }
             stars.geometry.attributes.alpha.needsUpdate = true;
 
-            // Shooting stars update
             shootingStars.forEach((star, index) => {
                 star.life -= 0.02;
                 if (star.life <= 0) {
