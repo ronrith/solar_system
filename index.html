@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar System Simulation</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            font-family: Arial, sans-serif;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="info"></div>
+
+    <!-- CDN Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://unpkg.com/three@0.134.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Orbit controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 5;
+        controls.maxDistance = 200;
+        let isUserInteracting = false;
+        controls.addEventListener('start', () => isUserInteracting = true);
+        controls.addEventListener('end', () => isUserInteracting = false);
+
+        // Sun with Bloom effect
+        const sunGeometry = new THREE.SphereGeometry(5, 32, 32);
+        const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+        scene.add(sun);
+
+        // Planet data
+        const planetsData = [
+            { name: "Mercury", radius: 0.2, distance: 10, speed: 0.04, color: 0xaaaaaa, period: 88 },
+            { name: "Venus", radius: 0.5, distance: 15, speed: 0.015, color: 0xffcc00, period: 225 },
+            { name: "Earth", radius: 0.5, distance: 20, speed: 0.01, color: 0x0000ff, period: 365 },
+            { name: "Mars", radius: 0.3, distance: 25, speed: 0.008, color: 0xff0000, period: 687 },
+            { name: "Jupiter", radius: 1.5, distance: 35, speed: 0.002, color: 0xffa500, period: 4333 },
+            { name: "Saturn", radius: 1.2, distance: 45, speed: 0.0015, color: 0xffff99, period: 10759 },
+            { name: "Uranus", radius: 0.8, distance: 55, speed: 0.001, color: 0x00ffff, period: 30687 },
+            { name: "Neptune", radius: 0.8, distance: 65, speed: 0.0008, color: 0x000099, period: 60190 }
+        ];
+
+        const planets = [];
+        planetsData.forEach(data => {
+            const geometry = new THREE.SphereGeometry(data.radius, 32, 32);
+            const material = new THREE.MeshPhongMaterial({ color: data.color });
+            const planet = new THREE.Mesh(geometry, material);
+            planet.userData = data;
+            planet.position.x = data.distance;
+            scene.add(planet);
+
+            const curve = new THREE.EllipseCurve(0, 0, data.distance, data.distance, 0, 2 * Math.PI, false, 0);
+            const points = curve.getPoints(100);
+            const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            const orbitMaterial = new THREE.LineBasicMaterial({ color: 0x555555 });
+            const orbit = new THREE.Line(orbitGeometry, orbitMaterial);
+            orbit.rotation.x = Math.PI / 2;
+            scene.add(orbit);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 128;
+            const context = canvas.getContext('2d');
+            context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            context.fillRect(0, 0, 512, 128);
+            context.fillStyle = 'white';
+            context.font = '32px Arial';
+            context.textAlign = 'center';
+            context.fillText(`${data.name}: ${data.period} days left`, 256, 80);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.scale.set(8, 2, 1);
+            sprite.position.y = data.radius + 2;
+            planet.add(sprite);
+
+            planets.push({
+                mesh: planet,
+                sprite: sprite,
+                angle: 0,
+                speed: data.speed,
+                distance: data.distance,
+                period: data.period,
+                elapsed: 0
+            });
+        });
+
+        // Lighting
+        const pointLight = new THREE.PointLight(0xffffff, 2, 100);
+        pointLight.position.set(0, 0, 0);
+        scene.add(pointLight);
+
+        // Star field with fade effect
+        const starGeometry = new THREE.BufferGeometry();
+        const starCount = 10000;
+        const positions = new Float32Array(starCount * 3);
+        const alphas = new Float32Array(starCount);
+        for (let i = 0; i < starCount * 3; i += 3) {
+            positions[i] = (Math.random() - 0.5) * 1000;
+            positions[i + 1] = (Math.random() - 0.5) * 1000;
+            positions[i + 2] = (Math.random() - 0.5) * 1000;
+            alphas[i / 3] = Math.random();
+        }
+        starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        starGeometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
+        const starMaterial = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.1,
+            transparent: true,
+            vertexColors: false,
+            onBeforeCompile: shader => {
+                shader.vertexShader = `
+                    attribute float alpha;
+                    varying float vAlpha;
+                    ${shader.vertexShader}
+                `.replace(
+                    `#include <color_vertex>`,
+                    `#include <color_vertex>
+                    vAlpha = alpha;`
+                );
+                shader.fragmentShader = `
+                    varying float vAlpha;
+                    ${shader.fragmentShader}
+                `.replace(
+                    `gl_FragColor = vec4( outgoingLight, diffuseColor.a );`,
+                    `gl_FragColor = vec4( outgoingLight, vAlpha );`
+                );
+            }
+        });
+        const stars = new THREE.Points(starGeometry, starMaterial);
+        scene.add(stars);
+
+        // Shooting stars
+        const shootingStars = [];
+        function createShootingStar() {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(2 * 3);
+            const start = [
+                (Math.random() - 0.5) * 500,
+                (Math.random() - 0.5) * 500,
+                (Math.random() - 0.5) * 500
+            ];
+            const direction = new THREE.Vector3(
+                Math.random() - 0.5,
+                Math.random() - 0.5,
+                Math.random() - 0.5
+            ).normalize();
+            positions[0] = start[0];
+            positions[1] = start[1];
+            positions[2] = start[2];
+            positions[3] = start[0] + direction.x * 10;
+            positions[4] = start[1] + direction.y * 10;
+            positions[5] = start[2] + direction.z * 10;
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const material = new THREE.LineBasicMaterial({ color: 0xffffff });
+            const shootingStar = new THREE.Line(geometry, material);
+            scene.add(shootingStar);
+            shootingStars.push({
+                mesh: shootingStar,
+                life: 1.0,
+                direction: direction
+            });
+        }
+        setInterval(() => {
+            if (Math.random() < 0.1) createShootingStar();
+        }, 1000);
+
+        // Post-processing for Bloom
+        const composer = new THREE.EffectComposer(renderer);
+        const renderPass = new THREE.RenderPass(scene, camera);
+        composer.addPass(renderPass);
+        const bloomPass = new THREE.UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            1.5, 0.4, 0.85
+        );
+        composer.addPass(bloomPass);
+
+        // Camera position and motion
+        camera.position.z = 50;
+        let cameraAngle = 0;
+
+        // Raycaster for hover
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const infoDiv = document.getElementById('info');
+
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(planets.map(p => p.mesh).concat(sun));
+            if (intersects.length > 0) {
+                const obj = intersects[0].object;
+                infoDiv.style.display = 'block';
+                if (obj === sun) {
+                    infoDiv.innerHTML = "Sun: The star at the center of our Solar System.";
+                } else {
+                    const data = obj.userData;
+                    infoDiv.innerHTML = `${data.name}: Radius: ${data.radius} (scaled), Distance: ${data.distance} (scaled)`;
+                }
+            } else {
+                infoDiv.style.display = 'none';
+            }
+        }
+
+        window.addEventListener('mousemove', onMouseMove);
+
+        // Animation
+        let time = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            time += 0.01;
+
+            // Camera motion (slow orbit around the Sun)
+            if (!isUserInteracting) {
+                cameraAngle += 0.001; // Slow constant motion
+                camera.position.x = Math.cos(cameraAngle) * 50;
+                camera.position.z = Math.sin(cameraAngle) * 50;
+                camera.position.y = Math.sin(cameraAngle * 0.5) * 20; // Slight vertical motion
+                camera.lookAt(0, 0, 0);
+            }
+
+            // Planet motion and caption update
+            planets.forEach(planet => {
+                planet.angle += planet.speed;
+                planet.mesh.position.x = Math.cos(planet.angle) * planet.distance;
+                planet.mesh.position.z = Math.sin(planet.angle) * planet.distance;
+                planet.mesh.rotation.y += 0.01;
+
+                planet.elapsed += planet.speed * 100;
+                if (planet.elapsed >= 2 * Math.PI) planet.elapsed -= 2 * Math.PI;
+
+                const daysLeft = Math.round(planet.period * (1 - planet.elapsed / (2 * Math.PI)));
+                const context = planet.sprite.material.map.image.getContext('2d');
+                context.clearRect(0, 0, 512, 128);
+                context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                context.fillRect(0, 0, 512, 128);
+                context.fillStyle = 'white';
+                context.font = '32px Arial';
+                context.textAlign = 'center';
+                context.fillText(`${planet.mesh.userData.name}: ${daysLeft} days left`, 256, 80);
+                planet.sprite.material.map.needsUpdate = true;
+            });
+
+            // Star field fade
+            const alphas = stars.geometry.attributes.alpha.array;
+            for (let i = 0; i < alphas.length; i++) {
+                alphas[i] = Math.sin(time + i) * 0.5 + 0.5; // Fade between 0 and 1
+            }
+            stars.geometry.attributes.alpha.needsUpdate = true;
+
+            // Shooting stars update
+            shootingStars.forEach((star, index) => {
+                star.life -= 0.02;
+                if (star.life <= 0) {
+                    scene.remove(star.mesh);
+                    shootingStars.splice(index, 1);
+                } else {
+                    const pos = star.mesh.geometry.attributes.position.array;
+                    pos[0] += star.direction.x * 2;
+                    pos[1] += star.direction.y * 2;
+                    pos[2] += star.direction.z * 2;
+                    pos[3] += star.direction.x * 2;
+                    pos[4] += star.direction.y * 2;
+                    pos[5] += star.direction.z * 2;
+                    star.mesh.geometry.attributes.position.needsUpdate = true;
+                    star.mesh.material.opacity = star.life;
+                }
+            });
+
+            controls.update();
+            composer.render();
+        }
+
+        animate();
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
