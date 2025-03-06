@@ -2,11 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Solar System Simulation</title>
     <style>
-        body { margin: 0; overflow: hidden; }
-        canvas { display: block; }
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            touch-action: none; /* Prevents default touch behaviors like pinch-to-zoom by browser */
+        }
+        canvas { 
+            display: block; 
+            width: 100vw; 
+            height: 100vh; 
+        }
         #info {
             position: absolute;
             top: 10px;
@@ -16,6 +24,8 @@
             padding: 10px;
             font-family: Arial, sans-serif;
             display: none;
+            font-size: 14px; /* Adjusted for mobile readability */
+            max-width: 80%; /* Prevents overflow on small screens */
         }
     </style>
 </head>
@@ -38,15 +48,18 @@
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio); // Improves rendering on high-DPI mobile screens
         document.body.appendChild(renderer.domElement);
 
-        // Orbit controls
+        // Orbit controls (mobile-friendly)
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
         controls.minDistance = 5;
         controls.maxDistance = 200;
-        controls.enableZoom = true;
+        controls.enableZoom = true; // Pinch to zoom on mobile
+        controls.enablePan = true; // Two-finger drag to pan
+        controls.enableRotate = true; // One-finger drag to rotate
         let isUserOverride = false;
         controls.addEventListener('start', () => {
             isUserOverride = true;
@@ -143,16 +156,16 @@
         // Star field with fade effect
         const starGeometry = new THREE.BufferGeometry();
         const starCount = 10000;
-        const positions = new Float32Array(starCount * 3);
-        const alphas = new Float32Array(starCount);
+        const starPositions = new Float32Array(starCount * 3);
+        const starAlphas = new Float32Array(starCount);
         for (let i = 0; i < starCount * 3; i += 3) {
-            positions[i] = (Math.random() - 0.5) * 1000;
-            positions[i + 1] = (Math.random() - 0.5) * 1000;
-            positions[i + 2] = (Math.random() - 0.5) * 1000;
-            alphas[i / 3] = Math.random();
+            starPositions[i] = (Math.random() - 0.5) * 1000;
+            starPositions[i + 1] = (Math.random() - 0.5) * 1000;
+            starPositions[i + 2] = (Math.random() - 0.5) * 1000;
+            starAlphas[i / 3] = Math.random();
         }
-        starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-        starGeometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
+        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        starGeometry.setAttribute('alpha', new THREE.BufferAttribute(starAlphas, 1));
         const starMaterial = new THREE.PointsMaterial({
             color: 0xffffff,
             size: 0.1,
@@ -229,14 +242,16 @@
         camera.position.z = 50;
         let cameraAngle = 0;
 
-        // Raycaster for hover
+        // Raycaster for hover (touch support)
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
         const infoDiv = document.getElementById('info');
 
-        function onMouseMove(event) {
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        function onTouchMove(event) {
+            event.preventDefault(); // Prevent scrolling
+            const touch = event.touches[0];
+            mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(planets.map(p => p.mesh).concat(sun));
             if (intersects.length > 0) {
@@ -253,7 +268,8 @@
             }
         }
 
-        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mousemove', onTouchMove); // Desktop
+        window.addEventListener('touchmove', onTouchMove, { passive: false }); // Mobile
 
         // Animation
         let time = 0;
@@ -290,12 +306,14 @@
                 planet.sprite.material.map.needsUpdate = true;
             });
 
-            const alphas = stars.geometry.attributes.alpha.array;
-            for (let i = 0; i < alphas.length; i++) {
-                alphas[i] = Math.sin(time + i) * 0.5 + 0.5;
+            // Star field fade
+            const starAlphas = stars.geometry.attributes.alpha.array;
+            for (let i = 0; i < starAlphas.length; i++) {
+                starAlphas[i] = Math.sin(time + i) * 0.5 + 0.5;
             }
             stars.geometry.attributes.alpha.needsUpdate = true;
 
+            // Shooting stars update
             shootingStars.forEach((star, index) => {
                 star.life -= 0.02;
                 if (star.life <= 0) {
